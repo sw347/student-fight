@@ -1,0 +1,12 @@
+train: dataset/train/images
+val: dataset/valid/images
+
+nc: 2
+names: ['No Fight', 'fight']
+
+roboflow:
+  workspace: fd
+  project: fight-detection
+  version: 3
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/fd/fight-detection/dataset/3
