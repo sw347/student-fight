@@ -17,15 +17,26 @@ UPLOAD_DIR = "uploads"
 MAX_FILES = 5
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+app.mount("/static", StaticFiles(directory=UPLOAD_DIR), name="static") # <-- 추가
+
+try:
+    cred = credentials.Certificate(service_account_key_path)
+    firebase_admin.initialize_app(cred)
+    print("[+] Firebase Admin SDK 초기화 성공")
+except Exception as e:
+    print(f"[!] Firebase Admin SDK 초기화 실패: {e}")
+    # 초기화 실패 시 앱 종료 또는 FCM 기능 비활성화 고려
+    # raise e # 앱 시작을 막고 싶다면 주석 해제
+
 # === Arduino 연결 설정 ===
 try:
-    arduino = serial.Serial('COM4', 9600)
+    arduino = serial.Serial('COM9', 9600)
     time.sleep(2)  # Arduino가 준비될 때까지 대기
 except Exception as e:
     print(f"[!] Arduino 연결 실패: {e}")
     arduino = None  # 연결 실패 시 None으로 설정
 
-model = YOLO('runs/detect/train6/weights/best.pt')  # 사전 학습된 YOLOv8 모델
+model = YOLO(r'C:\Users\swlee\workspace\student-fight\runs\best.pt')  # 사전 학습된 YOLOv8 모델
 
 def clean_old_files():
     files = [os.path.join(UPLOAD_DIR, f) for f in os.listdir(UPLOAD_DIR)]
@@ -74,7 +85,7 @@ async def upload_image(file: UploadFile = File(...), object_info: str = Form(...
         conf = float(box.conf[0])
         detections.append({"class_id": cls, "confidence": round(conf, 3)})
 
-        if cls == 1:  # 'fight' 클래스가 1번이라면
+        if cls == 1 and conf >= 0.45:  # 'fight' 클래스가 1번이라면
             fight_detected = True
 
               # === Arduino로 신호 보내기 ===
@@ -91,8 +102,63 @@ async def upload_image(file: UploadFile = File(...), object_info: str = Form(...
     return JSONResponse({
         "detections": detections,
         "object_info": object_info,
-        "saved_file": file_location
+        "saved_file": save_filename, # 저장된 파일의 이름만 반환 (URL은 클라이언트가 조합)
+        "created_at": datetime.now().isoformat() # 이미지 저장 시간 추가
     })
+    
+@app.post("/register_token")
+def register_token(token: str = Form(...)):
+    # 토큰 유효성 검사 (선택 사항)
+    if not token or not isinstance(token, str) or len(token) < 10: # 기본적인 길이 체크
+        raise HTTPException(status_code=400, detail="Invalid token provided.")
 
-if __name__ == "__main__":
+    tokens = get_all_device_tokens()
+    if token not in tokens: # 중복 방지
+        with open("tokens.txt", "a") as f:
+            f.write(token + "\n")
+        print(f"[+] 새 디바이스 토큰 등록: {token}")
+        return {"status": "success", "message": "Token registered"}
+    else:
+        print(f"[-] 토큰 이미 등록됨: {token}")
+        return {"status": "info", "message": "Token already registered"}
+
+@app.get("/latest-image")
+def get_latest_image():
+    files_in_uploads = [f for f in os.listdir(UPLOAD_DIR) if os.path.isfile(os.path.join(UPLOAD_DIR, f))]
+    
+    if files_in_uploads:
+        latest_file = max(files_in_uploads, key=lambda f: os.path.getmtime(os.path.join(UPLOAD_DIR, f)))
+        
+        created_at_timestamp = os.path.getmtime(os.path.join(UPLOAD_DIR, latest_file))
+        created_at_datetime = datetime.fromtimestamp(created_at_timestamp)
+
+        return JSONResponse({
+            "image_url": f"http://10.56.148.13:8000/static/{latest_file}",
+            "created_at": created_at_datetime.isoformat()
+        })
+    return JSONResponse({"image_url": None, "created_at": None})
+
+
+@app.get("/all-detected-images") # 모든 감지된 이미지 목록을 반환하는 새로운 엔드포인트
+async def get_all_detected_images():
+    files = sorted(os.listdir(UPLOAD_DIR), key=lambda x: os.path.getmtime(os.path.join(UPLOAD_DIR, x)), reverse=True)
+    
+    image_list = []
+    server_ip = "10.56.148.13" # 서버 IP 사용
+
+    for file_name in files:
+        file_path = os.path.join(UPLOAD_DIR, file_name)
+        if os.path.isfile(file_path):
+            created_at_timestamp = os.path.getmtime(file_path)
+            created_at_datetime = datetime.fromtimestamp(created_at_timestamp)
+            image_list.append({
+                "image_url": f"http://{server_ip}:8000/static/{file_name}",
+                "created_at": created_at_datetime.isoformat()
+            })
+            
+    return JSONResponse(image_list)
+
+# ... (기존 코드 하단 생략) ...
+
+if __name__ == "__main__":  
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
