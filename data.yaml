@@ -1,12 +1,13 @@
 train: dataset/train/images
 val: dataset/valid/images
+test: dataset/test/images
 
-nc: 2
-names: ['No Fight', 'fight']
+nc: 3
+names: ['NonViolence', 'Violence', 'human']
 
 roboflow:
-  workspace: fd
-  project: fight-detection
-  version: 3
+  workspace: hl-kl-qnlbg
+  project: violence-eb8gg
+  version: 1
   license: CC BY 4.0
-  url: https://universe.roboflow.com/fd/fight-detection/dataset/3
+  url: https://universe.roboflow.com/hl-kl-qnlbg/violence-eb8gg/dataset/1
